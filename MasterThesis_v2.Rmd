@@ -1,0 +1,3657 @@
+---
+title: "MasterThesis_v2"
+author: "Nicole Hackett"
+date: "2024-08-07"
+output:
+  html_document:
+    
+    df_print: paged
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The Health Service Executive ("HSE") is the single body that is responsible for the delivery of public health and social care services in the Republic of Ireland ("Ireland"). Established in 2005, it replaced the Health Boards that were previously in charge of these services. The abolishment of these Health Boards were part of significant reforms in the organisation of the Irish health system since 1970. With a budget exceeding 13 billion euros in 2009, it was Ireland's largest employer comprising of more than 65,000 staff directly employed (Mcdaid et al. 2009). In February 2024, The Minister for Health - Stephen Donnelly, has just approved the 2024 National Service Plan (NSP) for the HSE with an allocated budget of 23.5 billion euros. With an 4.6% increase from the prior year budget (Health Service Executive 2024), it looks to be that this substantial budget is steadily set to increase each year.
+
+Unfortunately, this does not automatically translate to the HSE being the most efficient business. Outpatient waiting lists for hospital appointments have been a long-standing issue for the public hospitals. The National Treatment Purchase Fund ("NTPF"), an independent statutory body established by the Minister for Health, posts monthly statistics on the outpatient waiting lists for all of the public hospitals in Ireland. Throughout the years, monthly public hospital waiting list figures have exhibited high numbers (in the tens of thousands) in the range of 18+ months waiting for outpatient hospital appointments. As at the time of this study, the latest figures published are pertaining to June 2024 with 52,338 people in the 18+ month range for all public hospitals combined. For reference, in June 2018 the figure was 80,679 (The National Treatment Purchase Fund 2024). There are several reasons for this staggering number. For instance, A Do Not Attend ("DNA") is when a patient unexpectedly fails to show up for their appointment. It may be the case of the patient going to a private clinic or recovering before the appointment date. In this instance, the outpatient waiting lists are only updated following the date of the non-attended appointment. This indeed leads to inefficient use of staff time, worse care for patients, and increase waiting times for patients (Department of Health 2024). While some public hospitals have long adopted the DiaryBook portal, which "was created in 2006 to provide appointment management software and to automatically send appointment reminders by SMS text" (Health Service Executive n.d.), others have been slower on the up-take. This is important as in a previous review, 28/29 studies concluded that an SMS reminder for appointments reduced DNAs by 34%, on average (Hasvold and Wootton, 2011). 
+
+However, a major cyber attack on the HSE in 2021 caused a significant, if not the most significant, disruption on the public hospital outpatient waiting lists. On the 14th of May 2021, all IT systems such as PCs and servers were hacked after an employee opened a malware-ridden email. Behind the attack were the Russian-based Conti ransomware group, who asked the HSE for $20m to restore services. The HSE were presumably targeted due to it being a large organisaiton (Sheils McNamee 2021). In an attempt to assess the impact on this attack, the IT systems were shut off and thus the healthcare employees no longer had access. In order to maintain providing patient care and services, these employees were forced to revert to using telephones and pen and paper as even emails were not accessible. This disruption lasted over four months (PricewaterhouseCoopers 2021). Consequently, outpatient appointments had no choice but to be cancelled and the waiting lists could not be updated for some time. One patient nearing the final stages of her radiation treatment at the time recalls being informed that her radiation was paused as staff were not able to access the correct coordinates used with the machine for her treatment. Thankfully, another hospital had the machinery separate from the wider system and the treatment carried out without long-term delay. However, this period of not knowing caused great distress for the patient (Sheils McNamee 2021). 
+
+The predominant motivation for this paper is that unforeseen events can disrupt hospital services at any time. Cyber hackers are becoming more sophisticated and advanced with their skills. Therefore, it is essential that hospitals are equipped with advanced practices and robust systems to mitigate disruptions and ensure the continuity of patient care. Not every public hospital operates the same. As aforementioned, some hospitals have been using the DiaryBook portal for a number of years while some have not, which highlights the need for tailored strategies. In this study, several public hospital outpatient waiting lists will be analysed, with a focus on forecasting which hospitals are likely to recover more effectively from such disruptions over the long term. Utilising Time Series Analysis and Machine Learning techniques, the research will identify patterns and predictors of resilience among hospitals. The findings will provide valuable insights in which other hospitals can learn from the more efficient ones and work on implementing their practices in order to better prepare for future unforeseen disruptions and contribute to better recovery outcomes.
+
+
+
+## Data 
+
+The data to be used in this study are the monthly outpatient waiting list figures retrieved from the NTPF. As previously stated, the NTPF are a corporate body with functions and responsibilities as set out under Statutory Instrument 179 - National Treatment Purchase Fund (Establishment) Order, 2004 and the Nursing Homes Support Scheme Act (2009). The body also performs any other function assigned by the Minister for Health, since July 2012 this includes responsibility for the publication of outpatient waiting lists (The National Treatment Purchase Fund n.d.). 
+
+
+
+```{r}
+library(readxl)
+pre_data <- read_excel("C:/Users/nhack/Downloads/2pre_attack_data_CUT.xlsx")
+
+str(pre_data)
+
+post_data <- read_excel("C:/Users/nhack/Downloads/post_attack_data_CUT.xlsx")
+
+str(post_data)
+
+```
+Now check for NA values:
+
+
+```{r}
+any(is.na(pre_data))
+any(is.na(post_data))
+
+sum(is.na(pre_data))
+
+```
+
+For the 20 of the NAs, it is the adult/child column and age profile column for Beaumont Hospital in the range of 0-3 months - since figures are mostly 1 with a few 2s and 3s, can deem in significant and delete. 
+
+```{r}
+pre_data <- na.omit(pre_data)
+any(is.na(pre_data))
+
+```
+Checked and no NAs left. Can begin grouping the ranges:
+
+
+```{r}
+library(dplyr)
+library(magrittr)
+pre_data_grouped <- pre_data %>%
+  mutate(Time_Band_Grouped = case_when(
+    `Time Band` %in% c("0-3 Months", "3-6 Months") ~ "0-6 Months",
+    `Time Band` %in% c("6-9 Months", "9-12 Months") ~ "6-12 Months",
+    `Time Band` %in% c("12-15 Months", "15-18 Months") ~ "12-18 Months",
+    `Time Band` == "18+ Months" ~ "18+ Months",
+    TRUE ~ "18+ Months"
+  ))
+
+#To check if "18+ Months" is present
+print(unique(pre_data_grouped$Time_Band_Grouped))
+
+
+```
+```{r}
+pre_data_summarised <- pre_data_grouped %>%
+  group_by(ArchiveDate, Hospital, `Adult/Child`, `Time_Band_Grouped`) %>%
+  summarise(Total = sum(Total, na.rm = TRUE)) %>%
+  ungroup()
+```
+
+
+
+```{r}
+
+str(pre_data_summarised)
+head(pre_data_summarised, 50)
+
+```
+
+
+Now to get total sum which is the sum of all ranges per hospital per month:
+
+```{r}
+pre_data_total <- pre_data_summarised %>%
+  group_by(ArchiveDate, Hospital, `Adult/Child`) %>%
+  mutate(Sum_Total = sum(Total, na.rm = TRUE)) %>%
+  ungroup()
+
+```
+
+
+converting ArchiveDate to date format:
+
+```{r}
+pre_data_total$ArchiveDate <- as.Date(pre_data_total$ArchiveDate, format="%d/%m/%Y")
+post_data$ArchiveDate <- as.Date(post_data$ArchiveDate, format="%d/%m/%Y")
+```
+
+to format the same way and rename Sum_Total to Total to align. 
+
+```{r}
+# Load necessary libraries
+library(tidyr)
+library(dplyr)
+
+# Rename columns in the post_data dataset first
+post_data_renamed <- post_data %>%
+  rename(
+    `18+ Months` =  `18 Months +`  
+  )
+
+# Convert wide format to long format
+post_data_long <- post_data_renamed %>%
+  pivot_longer(
+    cols = c(`0-6 Months`, `6-12 Months`, `12-18 Months`, `18+ Months`), # Specify columns to pivot
+    names_to = "Time_Band_Grouped",  # New column for time bands
+    values_to = "Total_per_age_profile"      # New column for total waiting times
+  ) %>%
+  # Ungroup to remove any grouping structure if needed
+  ungroup()
+
+# View the reshaped data
+print(post_data_long)
+
+
+# Load necessary library
+library(dplyr)
+
+# Rename columns in the pre_data_total dataset
+post_data_long2 <- post_data_long %>%
+  rename(
+    Sum_Total = Total,              
+    Total = Total_per_age_profile   
+  )
+
+# View the renamed dataset
+print(post_data_long2)
+
+
+```
+
+
+
+```{r}
+combined_data <- bind_rows(pre_data_total, post_data_long2, .id = "source")
+```
+
+```{r}
+str(pre_data_total)
+str(post_data_long2)
+str(combined_data)
+
+```
+
+
+### Methodology 
+
+
+Now moving onto EDA - visualisation by plots to understand the data more.
+
+line plots, box plots, bar plots, heat maps, facet grids, cumulative sum plots, pairwise comparisons,
+
+```{r}
+library(lattice)
+
+xyplot(Sum_Total ~ ArchiveDate | Hospital, 
+       data = combined_data, 
+       groups = `Adult/Child`, 
+       type = "o", 
+       auto.key = list(space = "right"), 
+       xlab = "Date", 
+       ylab = "Total Waiting Time", 
+       layout = c(2, 5),
+       main = "Total Waiting Time Trend by Hospital and Age Group")
+
+```
+
+The first clear observation is the disparity in waiting times between adults and children. It can therefore be concluded that adults contribute to the majority weighting of the waiting lists. 
+
+Limerick, Galway, Waterford showing the highest influxes following the cyber attack indicating the attack may have been a significant negative factor in the length of the waiting lists. 
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+par(mfrow = c(1,3))
+# Aggregate the data
+pre_aggregated_data <- pre_data_total %>%
+  group_by(Hospital, ArchiveDate, Time_Band_Grouped) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+post_aggregated_data <- post_data_long2 %>%
+  group_by(Hospital, ArchiveDate, Time_Band_Grouped) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+combined_aggregated_data <- combined_data %>%
+  group_by(Hospital, ArchiveDate, Time_Band_Grouped) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+
+# Determine the range of Sum_Total for proper scaling
+max_value <- max(pre_aggregated_data$Sum_Total, na.rm = TRUE)
+min_value <- min(pre_aggregated_data$Sum_Total, na.rm = TRUE)
+
+# Ensure the color gradient matches the value range
+ggplot(pre_aggregated_data, aes(x = Hospital, y = ArchiveDate, fill = Sum_Total)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue", limits = c(min_value, max_value)) +
+  labs(title = "Heatmap of Total Waiting Times by Hospital Over Time pre cyber attack",
+       x = "Hospital",
+       y = "Date",
+       fill = "Total Waiting Time") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+
+# Determine the range of Sum_Total for proper scaling
+max_value <- max(post_aggregated_data$Sum_Total, na.rm = TRUE)
+min_value <- min(post_aggregated_data$Sum_Total, na.rm = TRUE)
+
+# Ensure the color gradient matches the value range
+ggplot(post_aggregated_data, aes(x = Hospital, y = ArchiveDate, fill = Sum_Total)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue", limits = c(min_value, max_value)) +
+  labs(title = "Heatmap of Total Waiting Times by Hospital Over Time post cyber attack",
+       x = "Hospital",
+       y = "Date",
+       fill = "Total Waiting Time") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+# Determine the range of Sum_Total for proper scaling
+max_value <- max(combined_aggregated_data$Sum_Total, na.rm = TRUE)
+min_value <- min(combined_aggregated_data$Sum_Total, na.rm = TRUE)
+
+# Ensure the color gradient matches the value range
+ggplot(combined_aggregated_data, aes(x = Hospital, y = ArchiveDate, fill = Sum_Total)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "blue", limits = c(min_value, max_value)) +
+  labs(title = "Heatmap of Total Waiting Times by Hospital Over Time Overall",
+       x = "Hospital",
+       y = "Date",
+       fill = "Total Waiting Time") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+```
+
+It can be seen that the darkest areas for a number of hospitals are in the period of the year 2021 occurring right after the cyber attack. Not also the blank space across all hospitals between mid-May to the end of July, which is move evident than in the preceding plot. This is when the disruptions caused loss of access to the systems and therefore the waiting lists could not be updated. This plot gives an idea of the hospitals experiencing constant high numbers and which hospitals had more influx than others following the cyber attack. 
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Define the desired order for the time bands
+time_band_order <- c("0-6 Months", "6-12 Months", "12-18 Months", "18+ Months")
+
+# Ensure the Time_Band_Grouped is a factor with the specified levels
+combined_data$Time_Band_Grouped <- factor(
+  combined_data$Time_Band_Grouped,
+  levels = time_band_order
+)
+
+# Aggregate the data to sum the total waiting times for both adult and child categories
+combined_aggregated_data <- combined_data %>%
+  group_by(Hospital, ArchiveDate, Time_Band_Grouped) %>%
+  summarise(Total = sum(Total, na.rm = TRUE), .groups = 'drop')
+
+# Create a stacked bar chart with correctly ordered time bands
+ggplot(combined_aggregated_data, aes(x = ArchiveDate, y = Total, fill = Time_Band_Grouped)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2) +  # Arrange plots in 5 rows and 2 columns
+  labs(title = "Stacked Bar Chart of Total Waiting Times by Time Band for Each Hospital",
+       x = "Date",
+       y = "Total Waiting Time",
+       fill = "Time Band") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+```
+
+
+
+
+```{r}
+# Assuming combined_aggregated_data is your data frame and Sum_Total is the waiting time
+ggplot(combined_aggregated_data, aes(x = Hospital, y = Total)) +
+  geom_boxplot(aes(fill = Hospital)) +  # Add color to differentiate hospitals
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "red", aes(group = Hospital)) +
+  labs(title = "Box Plot of Waiting Times Across Different Hospitals",
+       x = "Hospital",
+       y = "Total Waiting Time",
+       fill = "Hospital") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+later - can do tests to see if hospitals differ from eachother significantly?
+
+
+```{r}
+ggplot(combined_aggregated_data, aes(x = Hospital, y = Total)) +
+  geom_violin(aes(fill = Hospital), scale = "width", trim = FALSE) +
+  stat_summary(fun = median, geom = "point", shape = 18, size = 3, color = "red", aes(group = Hospital)) +
+  labs(title = "Violin Plot of Waiting Times Across Different Hospitals",
+       x = "Hospital",
+       y = "Total Waiting Time",
+       fill = "Hospital") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r}
+library(treemap)
+
+# Aggregate the data to sum the total waiting times for each hospital and time band
+combined_aggregated_data_treemap <- combined_data %>%
+  group_by(Hospital, Time_Band_Grouped) %>%
+  summarise(Sum_Total = sum(Total, na.rm = TRUE), .groups = 'drop')
+
+# Create a treemap using the aggregated data
+treemap(combined_aggregated_data_treemap,
+        index = c("Hospital", "Time_Band_Grouped"),
+        vSize = "Sum_Total",
+        vColor = "Sum_Total",
+        type = "value",
+        title = "Treemap of Waiting Times by Hospital and Time Band",
+        palette = "Blues")  # Optional: you can choose a color palette
+
+```
+
+
+
+
+
+
+
+Modelling:
+1st fit interrupted time series model (regression) then fit ARIMA to account for autocorrelation 
+
+Interupted time series regression model:
+
+The objective is to determine the impact of the cyber attack on the outpatient waiting list numbers for all public hospitals by performing Interrupted Time Series (ITS) analysis by using segmented regression. The equation for the segmented regression is as follows:
+
+$Yt= \beta0+\beta1∗time+\beta2∗$ intervention $+\beta3∗$time after intervention $+\epsilon$ 
+
+Time series plot:
+
+```{r}
+
+library(ggplot2)
+library(scales)
+library(dplyr)
+
+# Ensure ArchiveDate is in Date format and handle missing values
+combined_aggregated_data <- combined_aggregated_data %>%
+  mutate(ArchiveDate = as.Date(ArchiveDate)) %>%
+  drop_na(Sum_Total, ArchiveDate)  # Remove rows with missing values
+
+# Determine y-axis limits based on the data
+y_limits <- range(combined_aggregated_data$Sum_Total, na.rm = TRUE)
+
+# Define the start and end of the period for interruption
+start_date <- as.Date('2021-05-14')
+end_date <- as.Date('2021-06-30')  # Adjust this date as needed
+
+# Plotting with facets for each hospital
+ggplot(data = combined_aggregated_data) +
+  geom_point(aes(x = ArchiveDate, y = Sum_Total)) +  # Plot points
+  geom_line(aes(x = ArchiveDate, y = Sum_Total), group = 1) +  # Plot lines
+  geom_rect(aes(xmin = start_date, xmax = end_date, ymin = -Inf, ymax = Inf),
+            fill = 'red', alpha = 0.2) +  # Shaded area for the period with transparency
+  scale_y_continuous(limits = y_limits, labels = comma) +  # Set y-axis limits based on data
+  xlab('Time') +
+  ylab('Total') +
+  labs(title = 'Time Series of the Outpatient Waiting List Numbers') +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.3, size = 5),
+    axis.text = element_text(size = 5),
+    axis.title = element_text(size = 5),
+    plot.title = element_text(size = 10)
+  ) +
+  facet_wrap(~ Hospital, nrow = 5, scales = "free_y")  # Facets for each hospital with free y-axis scaling
+
+```
+
+There is a clear influx of the waiting list numbers following the cyber attack for four of the hospitals and and lower albeit still an increase for the remaining hospitals. 
+
+
+For the model Prais–Winsten regression will be used due to its ability to account for the first degree autocorrelation AR(1) in a linear model (more robust than OLS).Firstly, to check for autocorrelation an OLS model will be fitted. To assess the overall presence of autocorrelation across the data, it is carried out before the data is split. 
+
+
+```{r}
+library(dplyr)
+
+# Define the start and end dates of the interruption
+start_date <- as.Date('2021-05-14')
+end_date <- as.Date('2021-06-30')
+
+# Create the PostIntervention variable for each hospital
+combined_aggregated_data <- combined_aggregated_data %>%
+  group_by(Hospital) %>%
+  mutate(PostIntervention = case_when(
+    ArchiveDate >= start_date & ArchiveDate <= end_date ~ 1,
+    ArchiveDate > end_date ~ 2,  # For the period after the interruption
+    TRUE ~ 0  # For the period before the interruption
+  )) %>%
+  ungroup()
+
+
+library(lmtest)
+
+# Initialize an empty list to store Durbin-Watson test results
+dw_results <- list()
+
+# Loop through each hospital
+for (hospital in unique(combined_aggregated_data$Hospital)) {
+  
+  # Filter data for the current hospital
+  hospital_data <- combined_aggregated_data %>%
+    filter(Hospital == hospital)
+  
+  # Fit the OLS model
+  ols_model <- lm(Sum_Total ~ ArchiveDate * PostIntervention, data = hospital_data)
+  
+  # Perform Durbin-Watson test for autocorrelation
+  dw_test <- dwtest(ols_model)
+  
+  # Store the test result
+  dw_results[[hospital]] <- dw_test
+  
+  # Print the result for each hospital
+  print(paste("Durbin-Watson test result for hospital:", hospital))
+  print(dw_test)
+}
+
+
+```
+
+The results indicate each hospital displays a strong presence of positive autocorrelation in the residuals, given the extremely low-p value and the Durbin-Watson statistic being very close to zero. It is therefore necessary to use Prais–Winsten regression in order to account for this first order autocorrelation. It adjusts for the correlation structure in the residuals, leading to more reliable parameter estimates.
+
+First, splitting the data into train and test:
+
+```{r}
+# Convert ArchiveDate to Date format
+combined_aggregated_data$ArchiveDate <- as.Date(combined_aggregated_data$ArchiveDate)
+
+# Define the split point
+split_date <- as.Date("2023-01-26")
+
+# Split the data
+train_data <- combined_aggregated_data %>% filter(ArchiveDate < split_date)
+test_data <- combined_aggregated_data %>% filter(ArchiveDate >= split_date)
+```
+
+The data is split by 81% train data and 29% test data. The train data includes pre cyber-attack and approximately a year and a half post cyber attack. The test data is approximately one year and a half. 
+
+
+```{r warning=FALSE}
+
+library(prais)
+library(dplyr)
+library(broom)
+
+# Initialize an empty list to store model summaries
+model_summaries <- list()
+
+# Loop through each hospital
+for (hospital in unique(train_data$Hospital)) {
+  
+  # Filter data for the current hospital
+  hospital_data <- train_data %>%
+    filter(Hospital == hospital) %>%
+    arrange(ArchiveDate)  # Ensure data is sorted by date
+  
+  # Convert ArchiveDate to numeric if needed
+  hospital_data$ArchiveDate <- as.numeric(as.Date(hospital_data$ArchiveDate))
+  
+  # Define the interruption variable
+  hospital_data$PostIntervention <- ifelse(hospital_data$ArchiveDate >= as.numeric(as.Date('2021-07-29')), 1, 0)
+  
+  # Fit Prais-Winsten regression model
+  pw_model <- tryCatch({
+    prais::prais_winsten(Sum_Total ~ ArchiveDate * PostIntervention,
+                         index = 'ArchiveDate',
+                         data = hospital_data)
+  }, error = function(e) {
+    message(paste("Error for hospital:", hospital, ":", e$message))
+    return(NULL)
+  })
+  
+  # Check if the model was fitted successfully
+  if (!is.null(pw_model)) {
+    # Store the summary of the model
+    model_summaries[[hospital]] <- summary(pw_model)
+    
+    # Print model summary
+    print(paste("Summary for hospital:", hospital))
+    print(summary(pw_model))
+  }
+}
+
+# Example of accessing the results for a specific hospital
+# Replace "Hospital_A" with the actual hospital name
+if ("Hospital_A" %in% names(model_summaries)) {
+  print(model_summaries[["Hospital_A"]])
+}
+
+```
+
+
+```{r}
+# Initialize an empty data frame to store hospital names and Adjusted R-squared values
+adjusted_r2_table <- data.frame(Hospital = character(), Adjusted_R2 = numeric(), stringsAsFactors = FALSE)
+
+# Loop through each model summary stored in model_summaries
+for (hospital in names(model_summaries)) {
+  # Extract Adjusted R-squared from the model summary
+  adj_r2 <- model_summaries[[hospital]]$adj.r.squared
+  
+  # Append the hospital name and Adjusted R-squared to the table
+  adjusted_r2_table <- rbind(adjusted_r2_table, data.frame(Hospital = hospital, Adjusted_R2 = adj_r2))
+}
+
+# Print the Adjusted R-squared table
+print(adjusted_r2_table)
+
+```
+
+
+
+
+The transformed DW statistic is approximately between 1.75 and 1.96 for all hospitals, indicating little to no autocorrelation. 
+
+For Galway University Hospital:
+
+Before the cyber attack, outpatient waiting lists were decreasing.
+Immediately after the cyber attack, there was a massive increase in waiting lists.
+Post-intervention, the rate of increase in waiting lists began to slow down or improve, as indicated by the positive interaction term.
+
+In this context, the Prais-Winsten regression results reveal that while the cyber attack caused an immediate and severe rise in waiting lists, the trend improved over time as the hospital systems began to recover or adapt.
+
+All hospitals experiences a spike following the cyber attack, some more noticeable than others. However, long-term, the results highlight that the rate of increase in waiting lists improved after the intervention, showing signs of recovery. The coefficents PostIntervention term and the interaction term ArchiveDate:PostIntervention . 
+
+University Hospital Limerick, Galway University Hospitals, University Hospital Waterford, Letterkenny University Hospital, Tallaght University Hospital, Cork University Hospital, St. James's Hospital, Naas General Hospital , in ascending order, displayed positive values for the PostIntervention coefficient suggesting an increase in the waiting lists totals post-cyber attack. Conversely, Cavan and Beaumont had negative numbers, suggesting that the cyber attack did not really impact their waiting lists, which is something to note. 
+
+The high p-values (above 0.001) of the PostIntervention coefficient highlight the significance of this for the hospitals. For Cork and Naas, the cyber attack does not seem to be significant in affecting the trend. Again, highlights that these hospitals were less impacted and is to be noted. 
+
+Comparing the recovery across hospitals, the ArchiveDate:PostIntervention coefficient represents the improvement/dis improvement in the rate of increase. 
+
+
+**** NEW WITH TRAIN
+
+Most hospitals show significant effects for ArchiveDate, PostIntervention, and their interaction, indicating the cyber attack was an important factor in the waiting list numbers for these hospitals. 
+
+Model Fit: R-squared values vary across hospitals, with some hospitals showing strong model fit (e.g., Tallaght University Hospital, University Hospital Waterford). Unsurprisingly, Beaumont, Cavan, Cork and kind of Naas had low R-adjusted values as it has been seen previously that they did not experience as much of an influx as the other hospitals.
+
+Autocorrelation: All hospitals initially show evidence of positive autocorrelation, but the Prais-Winsten transformation improves autocorrelation significantly.
+
+
+Now plot the time series:
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scales)
+library(prais)
+
+# Define the start and end dates for the intervention period
+intervention_start_date <- as.Date('2021-07-29')
+
+# Define a list to store plots for each hospital
+plots <- list()
+
+# Loop through each hospital
+for (hospital in unique(train_data$Hospital)) {
+  
+  # Filter data for the current hospital
+  hospital_data <- train_data %>%
+    filter(Hospital == hospital) %>%
+    mutate(ArchiveDate_numeric = as.numeric(ArchiveDate))  # Ensure ArchiveDate is numeric
+  
+  # Define the PostIntervention variable
+  hospital_data <- hospital_data %>%
+    mutate(PostIntervention = if_else(ArchiveDate >= intervention_start_date, 1, 0))
+  
+  # Fit Prais-Winsten regression model for the current hospital
+  pw_model <- tryCatch({
+    prais_winsten(Sum_Total ~ ArchiveDate_numeric * PostIntervention,
+                  index = 'ArchiveDate_numeric',
+                  data = hospital_data)
+  }, error = function(e) {
+    message(paste("Error for hospital:", hospital, ":", e$message))
+    next
+  })
+  
+  # Check if the model was fitted successfully
+  if (!is.null(pw_model)) {
+    # Calculate factual trend and counter-factual trend
+    hospital_data <- hospital_data %>%
+      mutate(factual_trend = pw_model$coefficients[1] +
+                       pw_model$coefficients[2] * ArchiveDate_numeric +
+                       pw_model$coefficients[3] * PostIntervention +
+                       pw_model$coefficients[4] * ArchiveDate_numeric * PostIntervention,
+             counter_fact = pw_model$coefficients[1] +
+                       pw_model$coefficients[2] * ArchiveDate_numeric)
+    
+    # Create the plot
+    p <- ggplot(data = hospital_data) +
+      # Plot actual data points and lines
+      geom_point(aes(x = ArchiveDate, y = Sum_Total), color = 'black') +
+      geom_line(aes(x = ArchiveDate, y = Sum_Total), color = 'black') +
+      
+      # Vertical line to separate before and after intervention
+      geom_vline(xintercept = as.numeric(intervention_start_date), linetype = "dotdash", color = 'red', size = 1.2) +
+      
+      # Plot factual trend
+      geom_line(aes(x = ArchiveDate, y = factual_trend), linetype = "dashed", color = 'blue', size = 1.2) +
+      
+      # Plot counter-factual trend
+      geom_line(aes(x = ArchiveDate, y = counter_fact), linetype = "dashed", color = 'darkorange', size = 1.2) +
+      
+      # Aesthetic adjustments
+      scale_y_continuous(labels = comma) +
+      xlab('Date') +
+      ylab('Number on Waiting List') +
+      labs(title = paste('Time Series of Waiting List for Hospital:', hospital)) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.3, size = 16),
+            axis.text = element_text(size = 16),
+            axis.title = element_text(size = 16),
+            plot.title = element_text(size = 20))
+    
+    # Store the plot in the list
+    plots[[hospital]] <- p
+    
+    # Save the plot to a file
+    ggsave(filename = paste0("plot_", hospital, ".png"), plot = p, width = 10, height = 6)
+  }
+}
+
+# Optionally, print plots to the console
+for (hospital in names(plots)) {
+  print(plots[[hospital]])
+}
+
+
+```
+
+
+The blue dashed is the factual data, the orange dashed line is the counterfactual. "Using the rule of thumb that if the confidence intervals don’t overlap, there’s something significant happening, we can conclude that the interruption preceded a significant step change in quantity.x" https://rpubs.com/chrissyhroberts/1006858 
+
+
+
+The equation for UHL, for example, would be:
+
+So at at 25 July 2024 in the factual world: $Total number on Waiting List= −264,700 + 16.53(ArchiveDate) +714,000(PostIntervention) −37.84(Time×PostIntervention)$
+
+As at 25 July 2024: $Total number on Waiting List= −264,700 + 16.53(1971) +714,000(1) −37.84(1) =  481,867.39$. 
+
+In the counter factual world where the cyber-attack did not happen: $Total number on Waiting List= −264,700 + 16.53(ArchiveDate)$
+
+As at 25 July 2024: $Total number on Waiting List= −264,700 + 16.53(1971) = -232,119.37$. 
+
+This equation can be useful to make a prediction on the future Total number on Waiting List for each hospital given this data. Let's predict the waiting list number in 2 years. The start to end date is 1,971 days and  730 days from July 25, 2024, to July 25, 2026. PostIntervention will be 1 since its post cyber attack.
+
+$Total number on Waiting List= −264,700 + 16.53(1971) +714,000(1) −37.84(730x1) = 454,289.23$. 
+
+This tells us the waiting lists are set to decrease over time. 
+
+
+
+Now we must evaluate the model using the test data. Root Mean Square Error (RMSE) measures the average difference between a statistical model's predicted values and the actual values. Therefore, predictions will be made and then the average difference between those and the actual values will be calculated.
+
+
+```{r}
+library(prais)
+library(dplyr)
+
+# Function to compute RMSE
+compute_rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2, na.rm = TRUE))
+}
+
+# Function to get fitted values from a Prais-Winsten model
+get_fitted_values <- function(model, newdata) {
+  tryCatch({
+    # Extract coefficients
+    coefficients <- model$coefficients[, "Estimate"]
+    
+    # Construct the model matrix from newdata
+    model_matrix <- model.matrix(as.formula(model$call$formula), data = newdata)
+    
+    # Compute the predictions
+    predictions <- model_matrix %*% coefficients
+    
+    return(predictions)
+  }, error = function(e) {
+    message(paste("Error in getting fitted values:", e$message))
+    return(NULL)
+  })
+}
+
+# Initialize a list to store RMSEs for each hospital
+model_rmse_list <- list()
+
+# Loop through each hospital and compute metrics
+for (hospital in unique(test_data$Hospital)) {
+  # Filter test data for the current hospital
+  hospital_data <- test_data %>%
+    filter(Hospital == hospital)
+  
+  # Retrieve the model for the current hospital
+  model_for_hospital <- model_summaries[[hospital]]
+  
+  if (!is.null(model_for_hospital)) {
+    # Get predictions from the model
+    predictions <- get_fitted_values(model_for_hospital, hospital_data)
+    
+    if (!is.null(predictions)) {
+      # Compute RMSE for the model predictions compared to actual values
+      model_rmse <- compute_rmse(hospital_data$Sum_Total, predictions)
+      
+      # Store the RMSE
+      model_rmse_list[[hospital]] <- model_rmse
+    } else {
+      message(paste("No predictions available for hospital:", hospital))
+    }
+  } else {
+    message(paste("No model available for hospital:", hospital))
+  }
+}
+
+# Convert model RMSE list to a data frame
+model_rmse_df <- data.frame(
+  Hospital = names(model_rmse_list),
+  Model_RMSE = unlist(model_rmse_list)
+)
+
+# Print the RMSE for each hospital
+print("Model RMSE for test data:")
+print(model_rmse_df)
+
+mean_actual <- mean(test_data$Sum_Total, na.rm = TRUE)
+rmse_ratio <- model_rmse_df$Model_RMSE / mean_actual
+print("RMSE relative to mean actual values:")
+print(rmse_ratio)
+
+```
+
+
+
+
+
+
+
+
+
+0.528 (Beaumont): The RMSE is approximately 53% of the mean actual value. The model performs reasonably well, but there’s room for improvement.
+
+0.215 (Cavan): The RMSE is about 22% of the mean actual value. This suggests relatively good performance; the model’s predictions are significantly better than simply predicting the mean.
+
+0.501 (Cork): The RMSE is about 50% of the mean actual value. The model performs moderately well.
+
+0.907 (Galway): The RMSE is close to the mean actual value, indicating that the model’s performance is similar to predicting the mean.
+
+0.446 (Letterkenny): The RMSE is about 45% of the mean actual value, suggesting decent performance.
+
+0.277 (Naas): The RMSE is about 28% of the mean actual value, indicating relatively good model performance.
+
+0.453 (St. James): The RMSE is about 45% of the mean actual value. The model performs reasonably well.
+
+0.119 (Tallaght): The RMSE is only about 12% of the mean actual value. This suggests very good performance; the model’s predictions are much closer to the actual values.
+
+1.237 (Limerick): The RMSE is about 124% of the mean actual value, which indicates poor performance. The model is not significantly better than simply predicting the mean.
+
+1.417 (Waterford): The RMSE is about 142% of the mean actual value, suggesting that the model’s performance is worse than predicting the mean.
+
+
+Now plotting actual vs. predicted values to see how accurate the model was visually:
+
+
+```{r}
+# Sample code to create actual values data frame
+# Replace this with your actual test data
+actual_values_df <- test_data %>%
+  select(Hospital, Sum_Total, ArchiveDate) %>%
+  rename(Actual = Sum_Total)
+
+# Define a function to get predictions for a specific hospital
+get_predictions_for_hospital <- function(model, data) {
+  # Assuming the model can be used to generate predictions directly
+  return(get_fitted_values(model, data))  # Ensure to replace with actual prediction function
+}
+
+# List to store predictions for each hospital
+predicted_values_list <- list()
+
+# Loop through each hospital and generate predictions
+for (hospital in unique(test_data$Hospital)) {
+  # Filter test data for the current hospital
+  hospital_data <- test_data %>%
+    filter(Hospital == hospital)
+  
+  # Retrieve the model for the current hospital
+  model_for_hospital <- model_summaries[[hospital]]
+  
+  if (!is.null(model_for_hospital)) {
+    # Get predictions
+    predictions <- get_predictions_for_hospital(model_for_hospital, hospital_data)
+    
+    # Create a data frame for predictions
+    predictions_df <- data.frame(
+      Hospital = hospital,
+      ArchiveDate = hospital_data$ArchiveDate,  # Ensure ArchiveDate is included
+      Predicted = predictions
+    )
+    
+    # Combine with the actual values data frame
+    predicted_values_list[[hospital]] <- predictions_df
+  } else {
+    message(paste("No model available for hospital:", hospital))
+  }
+}
+
+# Combine all predictions into a single data frame
+predicted_values_df <- do.call(rbind, predicted_values_list)
+
+# Combine actual and predicted values into one data frame
+plot_data <- actual_values_df %>%
+  left_join(predicted_values_df, by = c("Hospital", "ArchiveDate"))
+
+# Ensure the data frame has all necessary columns
+print(head(plot_data))
+
+
+library(ggplot2)
+
+# Create the line plot with facets for each hospital
+ggplot(plot_data, aes(x = ArchiveDate)) +
+  geom_line(aes(y = Actual, color = "Actual"), size = 1) +  # Line for actual values
+  geom_line(aes(y = Predicted, color = "Predicted"), size = 1, linetype = "dashed") +  # Line for predicted values
+  facet_wrap(~ Hospital, nrow=5, ncol=2) +  # Create a facet for each hospital
+  labs(title = "Actual vs. Predicted Values Over Time by Hospital",
+       x = "Archive Date",
+       y = "Values",
+       color = "Legend") +
+  theme_minimal()
+ theme(
+    strip.text = element_text(size = 6)  # Adjust size as needed
+  )
+
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Function to compute fitted values and residuals for each hospital
+compute_fitted_residuals <- function(model, newdata) {
+  # Extract coefficients
+  coefficients <- model$coefficients[, "Estimate"]
+  
+  # Construct the model matrix from newdata
+  model_matrix <- model.matrix(as.formula(model$call$formula), data = newdata)
+  
+  # Compute the predictions
+  fitted_values <- model_matrix %*% coefficients
+  
+  # Compute residuals
+  residuals <- newdata$Sum_Total - fitted_values
+  
+  return(data.frame(Fitted = fitted_values, Residuals = residuals))
+}
+
+# Prepare a combined data frame for all hospitals
+combined_diagnostic_data <- data.frame()
+
+# Loop through each hospital to compute diagnostics
+for (hospital in names(model_summaries)) {
+  # Filter data for the current hospital
+  hospital_data <- test_data %>% filter(Hospital == hospital)
+  
+  # Retrieve the Prais-Winsten model for the current hospital
+  pw_model_for_hospital <- model_summaries[[hospital]]
+  
+  if (!is.null(pw_model_for_hospital)) {
+    # Compute fitted values and residuals
+    diagnostic_data <- compute_fitted_residuals(pw_model_for_hospital, hospital_data)
+    diagnostic_data$Hospital <- hospital  # Add hospital name for plotting
+    combined_diagnostic_data <- rbind(combined_diagnostic_data, diagnostic_data)
+  } else {
+    message(paste("No Prais-Winsten model available for hospital:", hospital))
+  }
+}
+
+# Plot residuals vs. fitted values with facets for each hospital
+ggplot(combined_diagnostic_data, aes(x = Fitted, y = Residuals)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", color = "blue", se = FALSE) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2) +  # Adjust rows and columns as needed
+  labs(title = "Residuals vs. Fitted Values by Hospital",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 8))  # Adjust size as needed
+
+```
+
+
+
+
+So ITS has concluded that for a number of hospitals, the cyber attack was significant in affecting the waiting list numbers. This is important as it can be concluded that the cyber-attack was a main factor in the influx of waiting list numbers, i.e. there was not another major factor that was left out of the model that significantly impacted the waiting list numbers. 
+
+Now in order to predict which hospitals will recover better, ARIMA model will be used for each hospital.
+
+reference for IRS: https://rpubs.com/Suthammd/1075893 
+
+ITS Identifies the Impact of the Intervention:
+
+ITS allows you to statistically validate whether the intervention had a significant effect on each hospital's waiting list. This is a critical first step because it informs whether the intervention caused a measurable change in waiting list trends.
+ARIMA Provides Long-Term Forecasts:
+
+After determining the intervention’s impact, ARIMA helps to predict future waiting list numbers, taking into account the trends established post-intervention. You can then rank hospitals by their forecasted recovery rates.
+
+
+
+Before applying the model, the residuals must be stationary. A way to check this is Augmented Dickey-Fuller (ADF) test.  First, we can plot the resduals to check for any noticeable pattern:
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(prais)
+library(tseries)  # For adf.test
+library(forecast) # For ACF and PACF plotting
+
+# Define the start date for the intervention period
+intervention_start_date <- as.Date('2021-07-29')
+
+# List to store residuals, residual plots, and ADF test results
+residuals_list <- list()
+residual_plots <- list()
+acf_pacf_plots <- list()
+adf_results <- list()
+differenced_acf_plots <- list()
+second_order_differenced_acf_plots <- list()
+
+# Loop over each hospital
+for (hospital in unique(train_data$Hospital)) {
+  
+  # Filter data for the current hospital
+  hospital_data <- train_data %>%
+    filter(Hospital == hospital) %>%
+    mutate(ArchiveDate_numeric = as.numeric(ArchiveDate))  # Ensure ArchiveDate is numeric
+  
+  # Define the PostIntervention variable
+  hospital_data <- hospital_data %>%
+    mutate(PostIntervention = if_else(ArchiveDate >= intervention_start_date, 1, 0))
+  
+  # Fit Prais-Winsten regression model for the current hospital
+  pw_model <- tryCatch({
+    prais_winsten(Sum_Total ~ ArchiveDate_numeric * PostIntervention,
+                  index = 'ArchiveDate_numeric',
+                  data = hospital_data)
+  }, error = function(e) {
+    message(paste("Error for hospital:", hospital, ":", e$message))
+    next
+  })
+  
+  # Check if the model was fitted successfully
+  if (!is.null(pw_model)) {
+    # Extract residuals
+    residuals_pw <- residuals(pw_model)
+    
+    # Debug: Check if residuals are not empty
+    if (length(residuals_pw) == 0) {
+      message(paste("No residuals for hospital:", hospital))
+    } else {
+      # Store residuals
+      residuals_list[[hospital]] <- residuals_pw
+      
+      # Create a data frame for plotting residuals
+      residuals_df <- data.frame(Date = hospital_data$ArchiveDate, Residuals = residuals_pw)
+      
+      # Create the plot for residuals
+      residuals_plot <- ggplot(data = residuals_df, aes(x = Date, y = Residuals)) +
+        geom_line() +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+        labs(title = paste('Residuals for Hospital:', hospital),
+             x = 'Date',
+             y = 'Residuals') +
+        theme_minimal()
+      
+      # Store the residual plot
+      residual_plots[[hospital]] <- residuals_plot
+      
+      # Perform ADF test
+      adf_result <- adf.test(residuals_pw, alternative = "stationary")
+      adf_results[[hospital]] <- adf_result
+      
+      # Create ACF and PACF plots
+      acf_plot <- ggAcf(residuals_pw) +
+        ggtitle(paste('ACF for Hospital:', hospital)) +
+        theme_minimal()
+      
+      pacf_plot <- ggPacf(residuals_pw) +
+        ggtitle(paste('PACF for Hospital:', hospital)) +
+        theme_minimal()
+      
+      # Store ACF and PACF plots
+      acf_pacf_plots[[hospital]] <- list(acf_plot = acf_plot, pacf_plot = pacf_plot)
+      
+      # Create and save ACF plot for differenced residuals if needed
+      if (adf_result$p.value > 0.01) {
+        # First-order differencing
+        differenced_residuals <- residuals_pw - lag(residuals_pw, 1)
+        differenced_residuals <- na.omit(differenced_residuals)  # Remove NA values resulting from differencing
+        
+        # Re-check ADF test on first-differenced residuals
+        adf_test_differenced <- adf.test(differenced_residuals, alternative = "stationary")
+        adf_results[[hospital]] <- adf_test_differenced
+        
+        # Create and save the ACF plot for first-differenced residuals
+        differenced_acf_plot <- ggAcf(differenced_residuals) +
+          ggtitle(paste('ACF of First-Differenced Residuals for Hospital:', hospital)) +
+          theme_minimal()
+        
+        # Store and save the ACF plot for first-differenced residuals
+        differenced_acf_plots[[hospital]] <- differenced_acf_plot
+        
+        # Second-order differencing if needed
+        if (adf_test_differenced$p.value > 0.01) {
+          second_order_differenced_residuals <- differenced_residuals - lag(differenced_residuals, 1)
+          second_order_differenced_residuals <- na.omit(second_order_differenced_residuals)  # Remove NA values from differencing
+          
+          # Re-check ADF test on second-differenced residuals
+          adf_test_second_order_differenced <- adf.test(second_order_differenced_residuals, alternative = "stationary")
+          adf_results[[hospital]] <- adf_test_second_order_differenced
+          
+          # Create and save the ACF plot for second-order differenced residuals
+          second_order_differenced_acf_plot <- ggAcf(second_order_differenced_residuals) +
+            ggtitle(paste('ACF of Second-Order Differenced Residuals for Hospital:', hospital)) +
+            theme_minimal()
+          
+          # Store and save the ACF plot for second-order differenced residuals
+          second_order_differenced_acf_plots[[hospital]] <- second_order_differenced_acf_plot
+        }
+      }
+    }
+  }
+}
+
+# Optionally, print ADF results and plots to the console
+for (hospital in names(adf_results)) {
+  print(paste("ADF Test Result for Hospital:", hospital))
+  print(adf_results[[hospital]])
+  
+  if (!is.null(residual_plots[[hospital]])) {
+    print(residual_plots[[hospital]])
+  }
+  if (!is.null(acf_pacf_plots[[hospital]])) {
+    print(acf_pacf_plots[[hospital]]$acf_plot)
+    print(acf_pacf_plots[[hospital]]$pacf_plot)
+  }
+  if (!is.null(differenced_acf_plots[[hospital]])) {
+    print(differenced_acf_plots[[hospital]])
+  }
+  if (!is.null(second_order_differenced_acf_plots[[hospital]])) {
+    print(second_order_differenced_acf_plots[[hospital]])
+  }
+}
+
+```
+
+
+
+At a 95% confidence level, for the Dickey-Fuller figure at a 5% Level: Critical value might be around -2.89. If the number is below this, i.e. more negative, then this, with the analysis of the p-value (being below 0.05) tells us that the data is stationary. The ACF (q) and PACF (p) plots also provide insight.  In a stationary series, the ACF should show autocorrelations that quickly drop to near zero after a few lags, indicating that autocorrelation is not persistent beyond a certain lag. 
+
+For example, for Beaumont Hospital, the autocorrelations fell within the CIs after the 4th lag, it supports that the residuals do not exhibit long-term autocorrelation, which aligns with the stationary data. Since the PACF values are within the CI after 17 lags, it indicates that significant partial autocorrelation is only present up to about 17 lags. This suggests that you might consider using up to 17 lags for the AR component if you were to use AR terms in your ARIMA model.
+
+Cavan: supports stationary at output figures and p-value but ACF and PACF plots only within CI at 17 lag approximately. 
+
+Cork: supports stationary at output figures and p-value and ACF plot within CI at 4th lag but PACF plots only within CI at 17 lag approximately.
+
+Galway:  Output figures say non-stationary, ACF very gradual doesnt go below CI, PACF, significant drop at 5 lags.
+
+Letterkenny:Output figures say non-stationary, residual plots exhibit trend. ACF plot gradual  doesnt go below CI, PACF, significant drop at 9 lags.
+
+Naas: Output figures say non-stationary,  ACF plot gradual  doesnt go below CI, PACF, significant drop at 5 lags.
+
+St James': Output good p-value around 0.01, ACF plot goes within CI at 14th lag, PACF goes under but up again at 20th lag. 
+
+Tallaght: Output figures say non-stationary, residual plot trend showing,  ACF plot gradual  doesnt go below CI,  PACF, significant drop at 5 lags.
+
+Limerick: Output figures say non-stationary, ACF plot gradual  doesnt go below CI, PACF, significant drop at 5 lags. - needed second order differencing 
+
+Waterford: Output figures say very non-stationary, ACF plot gradual  doesnt go below CI, PACF, significant drop at 5 lags. 
+
+
+For those hospitals that are non-stationary (p-value <ç> 0.05), we will perform first order differencing, which essentially subtracts the previous observation from the current observation. 
+
+The results show that all p-values are significantly below 0.01 now and the ACF plots have improved, stationary for all hospitals has now been achieved. 
+
+
+
+ARIMA model fit and forecasts using auto.arima: 
+
+
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(forecast)
+library(purrr)
+library(ggplot2)
+library(tidyr)
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data for comparison
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Get the latest date in the test data to extend the forecast
+max_test_date <- max(df_monthly_test$Month)
+
+# Convert aggregated training data to time series for each hospital
+df_monthly_ts_train <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  nest() %>%
+  mutate(
+    ts_data = map(data, ~ts(.x$Sum_Total, frequency = 12, start = c(year(min(.x$Month)), month(min(.x$Month)))))
+  )
+
+# Fit ARIMA models and generate forecasts for each hospital using training data
+forecast_results <- df_monthly_ts_train %>%
+  mutate(
+    arima_model = map(ts_data, ~auto.arima(.x, seasonal = TRUE)),
+    forecast = map(arima_model, ~forecast(.x, h = 24)),  # Forecast for 24 months into the future
+    AIC = map_dbl(arima_model, AIC),
+    BIC = map_dbl(arima_model, BIC)
+  )
+
+# Extract forecast data for plotting (including 24 months into the future)
+forecast_plot_data <- forecast_results %>%
+  mutate(
+    forecast_data = map2(Hospital, forecast, ~{
+      # Generate the forecast dates
+      forecast_dates <- seq(from = max_test_date + months(1), by = "month", length.out = 24)
+      data.frame(
+        Month = forecast_dates,  # Use future forecast dates
+        Forecast = .y$mean
+      )
+    })
+  ) %>%
+  unnest(forecast_data)
+
+# Generate predictions for the test period using the models
+test_predictions <- forecast_results %>%
+  mutate(
+    predictions = map2(Hospital, arima_model, ~{
+      # Extract the model and generate predictions for the test period
+      model <- .y
+      pred <- forecast(model, h = nrow(df_monthly_test %>% filter(Hospital == .x)))
+      test_data <- df_monthly_test %>% filter(Hospital == .x)
+      data.frame(
+        Month = test_data$Month,
+        Predicted = pred$mean[1:nrow(test_data)]  # Ensure correct length for predictions
+      )
+    })
+  ) %>%
+  unnest(predictions) %>%
+  select(Hospital, Month, Predicted)
+
+# Prepare test data for plotting
+test_plot_data <- df_monthly_test %>%
+  rename(Actual = Sum_Total)
+
+# Combine the forecast, prediction, and test data for comparison
+plot_data <- bind_rows(
+  df_monthly_train %>%
+    select(Hospital, Month, Actual = Sum_Total) %>%
+    bind_rows(df_monthly_test %>% mutate(Actual = Sum_Total)),
+  forecast_plot_data %>% mutate(Actual = NA),  # Add NA for Actual where forecast is available
+  test_predictions %>% mutate(Forecast = NA)  # Add NA for Forecast where prediction is available
+)
+
+# Determine y-axis limits
+y_range <- range(c(plot_data$Forecast, plot_data$Actual, plot_data$Predicted), na.rm = TRUE)
+
+# Plotting
+ggplot(plot_data, aes(x = Month)) +
+  geom_line(data = plot_data %>% filter(!is.na(Actual)), aes(y = Actual, color = "Actual")) +  # Plot actuals
+  geom_line(data = plot_data %>% filter(!is.na(Predicted)), aes(y = Predicted, color = "Predicted"), linetype = "dotted") +  # Plot predictions
+  geom_line(data = plot_data %>% filter(!is.na(Forecast)), aes(y = Forecast, color = "Forecast"), linetype = "dashed") +  # Plot forecast
+  facet_wrap(~ Hospital, scales = "free_y") +
+  scale_y_continuous(limits = c(min(y_range, na.rm = TRUE), max(y_range, na.rm = TRUE))) +  # Extend y-axis range
+  labs(title = "Forecast vs Actual vs Predicted by Hospital (Including 24-Month Future Forecast)",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 5),  # Adjust facet strip text size
+    axis.text.x = element_text(size = 5),  # Adjust x-axis text size
+    axis.text.y = element_text(size = 5),  # Adjust y-axis text size
+    axis.title.x = element_text(size = 5),  # Adjust x-axis title size
+    axis.title.y = element_text(size = 5)   # Adjust y-axis title size
+  )
+
+# Extract AIC and BIC values
+aic_bic_results <- forecast_results %>%
+  select(Hospital, AIC, BIC)
+
+# Print AIC and BIC results
+print(aic_bic_results)
+
+
+```
+
+
+Choosing best p and q value for lowest AIC, BIC
+
+Beaumont:
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Extract and prepare historical data for Beaumont
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Beaumont Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_beaumont <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_beaumont$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Beaumont Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+Cavan:
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Extract and prepare historical data for Beaumont
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Cavan General Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_cavan <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_cavan$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Cavan General Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+
+Cork:
+
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Extract and prepare historical data for Beaumont
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Cork University Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_cork <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_cork$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Cork University Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+
+
+
+Galway:
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Galway University Hospitals") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_galway <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_galway$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Galway University Hospitals") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+
+
+Letterkenny University Hospital:
+
+```{r}
+
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Letterkenny University Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_letterkenny <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_letterkenny$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Letterkenny University Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+	
+Naas General Hospital:
+
+```{r}
+
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Naas General Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_naas <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_naas$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Naas General Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+
+```
+
+St. James's Hospital:
+
+```{r}
+
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "St. James's Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_stjames <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_stjames$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "St. James's Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+
+
+```
+
+
+Tallaght University Hospital:
+
+
+```{r}
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "Tallaght University Hospital") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_tallaght <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_tallaght$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "Tallaght University Hospital") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(0, 0, 0))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+
+
+```
+
+
+University Hospital Limerick:
+
+```{r}
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "University Hospital Limerick") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_limerick <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_limerick$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "University Hospital Limerick") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+
+
+University Hospital Waterford:
+
+
+```{r}
+# Extract and prepare historical data for Galway
+historical_data <- df_monthly_ts_train %>%
+  filter(Hospital == "University Hospital Waterford") %>%
+  pull(ts_data) %>%
+  .[[1]]
+
+# Define ranges for p and q
+p_values <- 0:4
+q_values <- 0:4
+
+# Initialize variables to store the best model
+best_model <- NULL
+best_aic <- Inf
+best_bic <- Inf
+best_p <- NA
+best_q <- NA
+
+# Loop through all combinations of p and q
+for (p in p_values) {
+  for (q in q_values) {
+    # Fit ARIMA model for current p and q
+    fit <- tryCatch({
+      Arima(historical_data, order = c(p, 0, q), seasonal = c(1, 0, 1))
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (!is.null(fit)) {
+      # Calculate AIC and BIC
+      current_aic <- AIC(fit)
+      current_bic <- BIC(fit)
+      
+      # Update the best model if current model is better
+      if (current_aic < best_aic && current_bic < best_bic) {
+        best_model <- fit
+        best_aic <- current_aic
+        best_bic <- current_bic
+        best_p <- p
+        best_q <- q
+      }
+    }
+  }
+}
+
+# Print best model parameters
+cat("Best model: ARIMA(", best_p, ", 0, ", best_q, ") with AIC =", best_aic, "and BIC =", best_bic, "\n")
+
+# Forecast for the period immediately following the historical data
+forecast_period_length <- 24  # Forecasting for 24 months
+forecast_waterford <- forecast(best_model, h = forecast_period_length)
+
+# Create a date sequence for the forecast period
+forecast_dates <- seq(as.Date("2024-07-25"), by = "month", length.out = forecast_period_length)
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  Forecast = forecast_waterford$mean
+)
+
+# Extract and prepare test data
+test_data <- df_monthly_test %>%
+  filter(Hospital == "University Hospital Waterford") %>%
+  mutate(Date = as.Date(Month)) %>%
+  select(Date, Actual = Sum_Total)
+
+# Predict for the test period
+test_period_length <- nrow(test_data)
+
+# Update the model to predict on the test period
+# Refitting the model including historical data up to the end of the test period
+full_data <- ts(c(historical_data, test_data$Actual), frequency = 12)
+fit_full <- Arima(full_data, order = c(best_p, 0, best_q), seasonal = c(1, 0, 1))
+
+# Generate predictions for the test period
+test_predictions <- forecast(fit_full, h = test_period_length)$mean
+
+# Combine test data and predictions into a data frame
+test_df <- test_data %>%
+  mutate(Predicted = test_predictions) %>%
+  select(Date, Actual, Predicted)
+
+# Combine historical, test, and forecast data
+historical_df <- data.frame(
+  Date = as.Date(time(historical_data), origin = "1970-01-01"),
+  Value = historical_data,
+  Type = "Historical"
+)
+
+combined_df <- bind_rows(
+  historical_df,
+  test_df %>% pivot_longer(cols = c(Actual, Predicted), names_to = "Type", values_to = "Value"),
+  forecast_df %>% mutate(Type = "Forecast", Value = Forecast)
+)
+
+# Plot using ggplot2
+ggplot() +
+  geom_line(data = combined_df %>% filter(Type == "Historical"), aes(x = Date, y = Value), color = "blue", size = 1) +
+  geom_line(data = combined_df %>% filter(Type == "Actual"), aes(x = Date, y = Value), color = "black", linetype = "solid") +
+  geom_line(data = combined_df %>% filter(Type == "Predicted"), aes(x = Date, y = Value), color = "red", linetype = "dotted") +
+  geom_line(data = combined_df %>% filter(Type == "Forecast"), aes(x = Date, y = Value), color = "green", size = 1) +
+  labs(title = "Time Series Forecast with Historical, Test, and Forecast Data",
+       x = "Date",
+       y = "Sum Total") +
+  theme_minimal() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_manual(values = c("blue", "black", "red", "green"), 
+                     labels = c("Historical", "Actual", "Predicted", "Forecast"))
+
+```
+
+
+
+
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(purrr)
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data by month and hospital
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Convert aggregated training data to time series for each hospital
+df_monthly_ts_train <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  nest() %>%
+  mutate(
+    ts_data = map(data, ~ts(.x$Sum_Total, frequency = 12, start = c(year(min(.x$Month)), month(min(.x$Month)))))
+  )
+
+# Function to create forecasts
+forecast_arima <- function(train_ts, test_dates) {
+  fit <- auto.arima(train_ts, seasonal = TRUE)
+  forecast_length <- length(test_dates)
+  
+  # Generate forecasts
+  fc <- forecast(fit, h = forecast_length)
+  return(fc$mean)
+}
+
+# Generate predictions
+predictions <- df_monthly_ts_train %>%
+  mutate(
+    test_dates = map(Hospital, ~{
+      df_monthly_test %>%
+        filter(Hospital == .x) %>%
+        pull(Month)
+    }),
+    arima_predictions = map2(ts_data, test_dates, forecast_arima)
+  )
+
+# Convert predictions to a data frame and ensure correct column names for joining
+predictions_df <- predictions %>%
+  select(Hospital, arima_predictions, test_dates) %>%
+  unnest(cols = c(arima_predictions, test_dates)) %>%
+  rename(Predicted = arima_predictions, Month = test_dates) %>%
+  left_join(df_monthly_test, by = c("Hospital", "Month"))
+
+# Plot the actual vs predicted values
+ggplot(predictions_df, aes(x = Month)) +
+  geom_line(aes(y = Sum_Total, color = "Actual")) +
+  geom_line(aes(y = Predicted, color = "Predicted")) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "ARIMA Model Predictions vs Actual Data",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "black", "Predicted" = "blue"))
+
+
+print(predictions_df)
+
+
+
+
+
+```{r}
+# Extract AIC and BIC values for each hospital's ARIMA model
+aic_bic_results <- df_monthly_ts_train %>%
+  mutate(
+    arima_model = map(ts_data, ~auto.arima(.x, seasonal = TRUE)),
+    arima_aic = map_dbl(arima_model, ~AIC(.x)),
+    arima_bic = map_dbl(arima_model, ~BIC(.x))
+  ) %>%
+  select(Hospital, arima_aic, arima_bic)
+
+# Print AIC and BIC values
+print(aic_bic_results)
+
+
+
+```
+
+```{r}
+# Calculate RMSE
+calculate_rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2, na.rm = TRUE))
+}
+
+# Calculate RMSE for each hospital
+rmse_results <- predictions_df %>%
+  group_by(Hospital) %>%
+  summarise(
+    RMSE = calculate_rmse(Sum_Total, Predicted),
+    .groups = 'drop'
+  )
+
+print(rmse_results)
+
+
+# Naive model: Previous month's actual value
+df_monthly_test <- df_monthly_test %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Naive_Predicted = lag(Sum_Total)
+  )
+
+# Calculate RMSE for naive model
+naive_rmse <- df_monthly_test %>%
+  filter(!is.na(Naive_Predicted)) %>%
+  group_by(Hospital) %>%
+  summarise(
+    Naive_RMSE = calculate_rmse(Sum_Total, Naive_Predicted),
+    .groups = 'drop'
+  )
+
+# Merge RMSE results with naive model RMSE results
+rmse_comparison <- rmse_results %>%
+  left_join(naive_rmse, by = "Hospital") %>%
+  mutate(
+    RMSE_Ratio = RMSE / Naive_RMSE
+  )
+
+print(rmse_comparison)
+
+```
+```{r}
+library(dplyr)
+library(forecast)
+
+# Assuming `predictions_df` contains actual and predicted values
+
+# Calculate MAE
+mae <- predictions_df %>%
+  summarise(MAE = mean(abs(Sum_Total - Predicted), na.rm = TRUE))
+
+# Calculate MAPE
+mape <- predictions_df %>%
+  summarise(MAPE = mean(abs((Sum_Total - Predicted) / Sum_Total), na.rm = TRUE) * 100)
+
+# Calculate MSE
+mse <- predictions_df %>%
+  summarise(MSE = mean((Sum_Total - Predicted)^2, na.rm = TRUE))
+
+# Print metrics
+print(mae)
+print(mape)
+print(mse)
+
+```
+
+
+Due to very large values in data set, MAPE better than RMSE to see how good model fits. 
+
+Interpreting MAPE Values:
+
+MAPE = 0%: Perfect accuracy; no error in predictions.
+0% < MAPE < 10%: Excellent forecast accuracy.
+10% ≤ MAPE < 20%: Good forecast accuracy.
+20% ≤ MAPE < 50%: Reasonable forecast accuracy.
+MAPE ≥ 50%: Poor forecast accuracy.
+
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(purrr)
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data for comparison
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Ensure hospitals are present in both datasets
+common_hospitals <- intersect(df_monthly_train$Hospital, df_monthly_test$Hospital)
+
+df_monthly_train <- df_monthly_train %>% filter(Hospital %in% common_hospitals)
+df_monthly_test <- df_monthly_test %>% filter(Hospital %in% common_hospitals)
+
+# Convert aggregated training data to time series for each hospital
+df_monthly_ts_train <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  nest() %>%
+  mutate(
+    ts_data = map(data, ~ts(.x$Sum_Total, frequency = 12, start = c(year(min(.x$Month)), month(min(.x$Month)))))
+  )
+
+# Generate predictions on the test data period using the ARIMA and Historical Mean models
+predictions_test <- df_monthly_ts_train %>%
+  mutate(
+    arima_model = map(ts_data, ~auto.arima(.x, seasonal = TRUE)),
+    
+    # Historical Mean Model as ARIMA(0,0,0)
+    mean_model = map(ts_data, ~Arima(.x, order = c(0, 0, 0))),
+    
+    # Generate forecasts specifically for the test data period
+    arima_forecast_test = map2(arima_model, Hospital, ~{
+      if (.y %in% df_monthly_test$Hospital) {
+        forecast(.x, h = nrow(df_monthly_test[df_monthly_test$Hospital == .y, ]))
+      } else {
+        NULL
+      }
+    }),
+    mean_forecast_test = map2(mean_model, Hospital, ~{
+      if (.y %in% df_monthly_test$Hospital) {
+        forecast(.x, h = nrow(df_monthly_test[df_monthly_test$Hospital == .y, ]))
+      } else {
+        NULL
+      }
+    })
+  ) %>%
+  select(Hospital, arima_forecast_test, mean_forecast_test) %>%
+  filter(!is.null(arima_forecast_test) & !is.null(mean_forecast_test))
+
+# Extract forecasted values for comparison with actual test data
+predictions_plot_data <- predictions_test %>%
+  mutate(
+    arima_forecast_data = map2(Hospital, arima_forecast_test, ~{
+      forecast_dates <- df_monthly_test %>%
+        filter(Hospital == .x) %>%
+        pull(Month)
+      data.frame(
+        Month = forecast_dates,
+        Forecast = .y$mean,
+        Model = "ARIMA",
+        Hospital = .x
+      )
+    }),
+    mean_forecast_data = map2(Hospital, mean_forecast_test, ~{
+      forecast_dates <- df_monthly_test %>%
+        filter(Hospital == .x) %>%
+        pull(Month)
+      data.frame(
+        Month = forecast_dates,
+        Forecast = .y$mean,
+        Model = "Historical Mean",
+        Hospital = .x
+      )
+    })
+  ) %>%
+  select(Hospital, arima_forecast_data, mean_forecast_data) %>%
+  unnest(c(arima_forecast_data, mean_forecast_data), names_sep = "_")
+
+# Prepare actual test data for plotting
+test_plot_data <- df_monthly_test %>%
+  rename(Actual = Sum_Total) %>%
+  mutate(Model = "Actual")
+
+# Combine the forecast and actual test data for comparison
+plot_data_test <- bind_rows(
+  predictions_plot_data %>%
+    rename(Month = arima_forecast_data_Month) %>%
+    select(Hospital = arima_forecast_data_Hospital, Month, Forecast = arima_forecast_data_Forecast, Model = arima_forecast_data_Model),
+  
+  predictions_plot_data %>%
+    rename(Month = mean_forecast_data_Month) %>%
+    select(Hospital = mean_forecast_data_Hospital, Month, Forecast = mean_forecast_data_Forecast, Model = mean_forecast_data_Model),
+  
+  test_plot_data %>%
+    rename(Forecast = Actual)
+)
+
+# Plot the results comparing ARIMA, Historical Mean, and Actual test values
+ggplot(plot_data_test, aes(x = Month, y = Forecast, color = Model)) +
+  geom_line() +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "ARIMA vs Historical Mean Predictions vs Actual on Test Data by Hospital",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("ARIMA" = "blue", "Historical Mean" = "green", "Actual" = "black")) +
+  theme(
+    strip.text = element_text(size = 5),
+    axis.text.x = element_text(size = 5),
+    axis.text.y = element_text(size = 5),
+    axis.title.x = element_text(size = 5),
+    axis.title.y = element_text(size = 5)
+  )
+
+
+```
+
+MAPE:
+
+```{r}
+library(dplyr)
+library(purrr)
+
+# Calculate MAPE between the forecast and the actual test data
+calculate_mape <- function(actual, forecast) {
+  mean(abs((actual - forecast) / actual), na.rm = TRUE) * 100
+}
+
+# Prepare actual values for MAPE calculation
+actual_values <- df_monthly_test %>%
+  rename(Actual = Sum_Total) %>%
+  select(Hospital, Month, Actual)
+
+# Calculate MAPE for ARIMA and Historical Mean models
+mape_results <- predictions_test %>%
+  mutate(
+    arima_mape = map2_dbl(arima_forecast_test, Hospital, ~{
+      actual_data <- actual_values %>%
+        filter(Hospital == .y) %>%
+        pull(Actual)
+      forecasted_values <- .x$mean
+      calculate_mape(actual_data, forecasted_values)
+    }),
+    
+    mean_mape = map2_dbl(mean_forecast_test, Hospital, ~{
+      actual_data <- actual_values %>%
+        filter(Hospital == .y) %>%
+        pull(Actual)
+      forecasted_values <- .x$mean
+      calculate_mape(actual_data, forecasted_values)
+    })
+  ) %>%
+  select(Hospital, arima_mape, mean_mape)
+
+# Print the MAPE values for each hospital
+print(mape_results)
+
+# Optionally, if you want to see the average MAPE across all hospitals:
+average_mape <- mape_results %>%
+  summarise(
+    avg_arima_mape = mean(arima_mape, na.rm = TRUE),
+    avg_mean_mape = mean(mean_mape, na.rm = TRUE)
+  )
+
+print(average_mape)
+
+```
+
+```{r}
+library(dplyr)
+library(purrr)
+
+# Calculate MAPE between the forecast and the actual test data
+calculate_mape <- function(actual, forecast) {
+  mean(abs((actual - forecast) / actual), na.rm = TRUE) * 100
+}
+
+# Prepare actual values for MAPE calculation
+actual_values <- df_monthly_test %>%
+  rename(Actual = Sum_Total) %>%
+  select(Hospital, Month, Actual)
+
+# Create a naive model (using the last observed value for each hospital)
+create_naive_forecast <- function(train_data, test_data_length) {
+  last_observed_value <- tail(train_data, 1)
+  rep(last_observed_value, test_data_length)
+}
+
+# Generate naive forecasts for the test data period
+predictions_test <- df_monthly_ts_train %>%
+  mutate(
+    arima_model = map(ts_data, ~auto.arima(.x, seasonal = TRUE)),
+    
+    # Generate Naive forecasts for each hospital
+    naive_forecast_test = map2(ts_data, Hospital, ~{
+      test_length <- nrow(df_monthly_test %>% filter(Hospital == .y))
+      create_naive_forecast(.x, test_length)
+    })
+  ) %>%
+  select(Hospital, arima_model, naive_forecast_test)
+
+# Calculate MAPE for ARIMA and Naive models
+mape_results <- predictions_test %>%
+  mutate(
+    arima_mape = map2_dbl(arima_model, Hospital, ~{
+      actual_data <- actual_values %>%
+        filter(Hospital == .y) %>%
+        pull(Actual)
+      forecasted_values <- forecast(.x, h = length(actual_data))$mean
+      calculate_mape(actual_data, forecasted_values)
+    }),
+    
+    naive_mape = map2_dbl(naive_forecast_test, Hospital, ~{
+      actual_data <- actual_values %>%
+        filter(Hospital == .y) %>%
+        pull(Actual)
+      forecasted_values <- .x
+      calculate_mape(actual_data, forecasted_values)
+    })
+  ) %>%
+  select(Hospital, arima_mape, naive_mape)
+
+# Print the MAPE values for each hospital
+print(mape_results)
+
+# Optionally, if you want to see the average MAPE across all hospitals:
+average_mape <- mape_results %>%
+  summarise(
+    avg_arima_mape = mean(arima_mape, na.rm = TRUE),
+    avg_naive_mape = mean(naive_mape, na.rm = TRUE)
+  )
+
+print(average_mape)
+
+```
+
+
+
+Comparing auto.arima model with mean model:
+
+```{r}
+library(dplyr)
+library(forecast)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(purrr)
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data for comparison
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Convert aggregated training data to time series for each hospital
+df_monthly_ts_train <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  nest() %>%
+  mutate(
+    ts_data = map(data, ~ts(.x$Sum_Total, frequency = 12, start = c(year(min(.x$Month)), month(min(.x$Month)))))
+  )
+
+# Fit ARIMA and Historical Mean models for each hospital and extract AIC/BIC
+model_results <- df_monthly_ts_train %>%
+  mutate(
+    arima_model = map(ts_data, ~auto.arima(.x, seasonal = TRUE)),
+    
+    # Historical Mean Model as ARIMA(0,0,0)
+    mean_model = map(ts_data, ~Arima(.x, order = c(0, 0, 0))),
+    
+    # Extract AIC and BIC for ARIMA
+    arima_aic = map_dbl(arima_model, AIC),
+    arima_bic = map_dbl(arima_model, BIC),
+    
+    # Extract AIC and BIC for Historical Mean Model (ARIMA(0,0,0))
+    mean_aic = map_dbl(mean_model, AIC),
+    mean_bic = map_dbl(mean_model, BIC),
+    
+    # Generate forecasts for both models
+    arima_forecast = map(arima_model, ~forecast(.x, h = 24)),  # ARIMA forecast for 24 months
+    mean_forecast = map(mean_model, ~forecast(.x, h = 24))  # Historical mean forecast for 24 months
+  )
+
+# Extract forecast data for both models for plotting
+forecast_plot_data <- model_results %>%
+  mutate(
+    arima_forecast_data = map2(Hospital, arima_forecast, ~{
+      forecast_dates <- seq(from = max(df_monthly_test$Month) + months(1), by = "month", length.out = 24)
+      data.frame(
+        Month = forecast_dates,
+        Forecast = .y$mean,
+        Model = "ARIMA",
+        Hospital = .x
+      )
+    }),
+    mean_forecast_data = map2(Hospital, mean_forecast, ~{
+      forecast_dates <- seq(from = max(df_monthly_test$Month) + months(1), by = "month", length.out = 24)
+      data.frame(
+        Month = forecast_dates,
+        Forecast = .y$mean,
+        Model = "Historical Mean",
+        Hospital = .x
+      )
+    })
+  ) %>%
+  select(Hospital, arima_forecast_data, mean_forecast_data) %>%
+  unnest(c(arima_forecast_data, mean_forecast_data), names_sep = "_")
+
+# Prepare test data for plotting
+test_plot_data <- df_monthly_test %>%
+  rename(Actual = Sum_Total) %>%
+  mutate(Model = "Actual")
+
+# Combine the forecast and test data for comparison
+plot_data <- bind_rows(
+  forecast_plot_data %>%
+    rename(Month = arima_forecast_data_Month) %>%
+    select(Hospital = arima_forecast_data_Hospital, Month, Forecast = arima_forecast_data_Forecast, Model = arima_forecast_data_Model),
+  
+  forecast_plot_data %>%
+    rename(Month = mean_forecast_data_Month) %>%
+    select(Hospital = mean_forecast_data_Hospital, Month, Forecast = mean_forecast_data_Forecast, Model = mean_forecast_data_Model),
+  
+  test_plot_data %>%
+    rename(Forecast = Actual)
+)
+
+# Plot the results comparing ARIMA, Historical Mean, and Actual values
+ggplot(plot_data, aes(x = Month, y = Forecast, color = Model)) +
+  geom_line() +
+  facet_wrap(~ Hospital, nrow=5, ncol=2, scales = "free_y") +
+  labs(title = "ARIMA vs Historical Mean Forecasts by Hospital",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("ARIMA" = "blue", "Historical Mean" = "green", "Actual" = "black")) +
+  theme(
+    strip.text = element_text(size = 5),
+    axis.text.x = element_text(size = 5),
+    axis.text.y = element_text(size = 5),
+    axis.title.x = element_text(size = 5),
+    axis.title.y = element_text(size = 5)
+  )
+
+# Extract AIC and BIC values for comparison
+aic_bic_comparison <- model_results %>%
+  select(Hospital, arima_aic, arima_bic, mean_aic, mean_bic)
+
+# Print the AIC and BIC values for each hospital
+print(aic_bic_comparison)
+
+
+```
+
+Machine Learning:
+Random Forest:
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Prepare the data with lag features
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+# Train Random Forest models for each hospital
+fit_rf <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  do(model = randomForest(Sum_Total ~ Lag1 + Lag2 + Lag3, data = ., ntree = 1000))
+
+# Make predictions on test data
+df_predictions <- df_monthly_test %>%
+  group_by(Hospital) %>%
+  do({
+    hospital <- unique(.$Hospital)
+    model <- fit_rf$model[[which(unique(df_monthly_train$Hospital) == hospital)]]
+    pred <- predict(model, newdata = .)
+    data.frame(Month = .$Month, Actual = .$Sum_Total, Predicted = pred)
+  }) %>%
+  ungroup()
+
+# Calculate MAPE
+df_predictions <- df_predictions %>%
+  mutate(
+    MAPE = abs((Actual - Predicted) / Actual) * 100
+  )
+
+# Summarize MAPE for each hospital
+mape_summary <- df_predictions %>%
+  group_by(Hospital) %>%
+  summarise(
+    Mean_MAPE = mean(MAPE, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(mape_summary)
+
+# Plot predictions against actual values
+ggplot(df_predictions, aes(x = Month)) +
+  geom_line(aes(y = Actual, color = "Actual")) +
+  geom_line(aes(y = Predicted, color = "Predicted")) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "Actual vs Predicted Values",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "black", "Predicted" = "blue"))
+
+```
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+
+# Prepare the data with lag features
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+# Train Random Forest models for each hospital
+fit_rf <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  do(model = randomForest(Sum_Total ~ Lag1 + Lag2 + Lag3, data = ., ntree = 1000))
+
+# Make predictions on test data
+df_predictions <- df_monthly_test %>%
+  group_by(Hospital) %>%
+  do({
+    hospital <- unique(.$Hospital)
+    model <- fit_rf$model[[which(unique(df_monthly_train$Hospital) == hospital)]]
+    pred_rf <- predict(model, newdata = .)
+    last_observed <- .$Lag1  # Naive prediction using the last observed value
+    data.frame(Month = .$Month, Actual = .$Sum_Total, Predicted_RF = pred_rf, Predicted_Naive = last_observed)
+  }) %>%
+  ungroup()
+
+# Calculate MAPE for both Random Forest and Naive predictions
+df_predictions <- df_predictions %>%
+  mutate(
+    MAPE_RF = abs((Actual - Predicted_RF) / Actual) * 100,
+    MAPE_Naive = abs((Actual - Predicted_Naive) / Actual) * 100
+  )
+
+# Summarize MAPE for each hospital
+mape_summary <- df_predictions %>%
+  group_by(Hospital) %>%
+  summarise(
+    Mean_MAPE_RF = mean(MAPE_RF, na.rm = TRUE),
+    Mean_MAPE_Naive = mean(MAPE_Naive, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(mape_summary)
+
+# Plot predictions against actual values for both models
+ggplot(df_predictions, aes(x = Month)) +
+  geom_line(aes(y = Actual, color = "Actual")) +
+  geom_line(aes(y = Predicted_RF, color = "Predicted_RF")) +
+  geom_line(aes(y = Predicted_Naive, color = "Predicted_Naive")) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "Actual vs Predicted Values (RF vs Naive)",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "black", "Predicted_RF" = "blue", "Predicted_Naive" = "red"))
+
+```
+
+
+
+Forecast:
+
+
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(zoo)   # For forward-filling missing values
+library(randomForest)
+library(ggplot2)
+library(tidyr)  # For unnest()
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data by month and hospital
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Prepare training data by adding multiple lag features
+df_monthly_train <- df_monthly_train %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+# Prepare test data by adding multiple lag features
+df_monthly_test <- df_monthly_test %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+# Fit the Random Forest model for each hospital
+fit_rf <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  do(model = randomForest(Sum_Total ~ Lag1 + Lag2 + Lag3, data = ., ntree = 100))
+
+# Generate predictions on test data
+df_predictions <- df_monthly_test %>%
+  group_by(Hospital) %>%
+  do({
+    hospital <- unique(.$Hospital)
+    model <- fit_rf$model[[which(unique(df_monthly_train$Hospital) == hospital)]]
+    pred <- predict(model, newdata = .)
+    data.frame(Month = .$Month, Predicted = pred)
+  }) %>%
+  ungroup()
+
+# Combine test data with predictions
+df_test_with_predictions <- df_monthly_test %>%
+  left_join(df_predictions, by = c("Hospital", "Month"))
+
+# Define the forecast period
+future_start <- ymd("2024-07-25")
+future_end <- ymd("2026-07-25")
+
+# Prepare future dates for forecasting
+future_dates <- seq.Date(from = future_start, to = future_end, by = "month")
+df_future <- expand.grid(Hospital = unique(df_monthly_train$Hospital), Month = future_dates)
+
+# Combine historical and future data
+df_combined <- bind_rows(
+  df_monthly_train %>% select(Hospital, Month, Sum_Total, Lag1, Lag2, Lag3),
+  df_future %>% mutate(Lag1 = NA, Lag2 = NA, Lag3 = NA, Sum_Total = NA)
+)
+
+# Handle missing Lag values by forward-filling
+df_combined <- df_combined %>%
+  group_by(Hospital) %>%
+  arrange(Month) %>%
+  mutate(
+    Lag1 = zoo::na.locf(Lag1, na.rm = FALSE),
+    Lag2 = zoo::na.locf(Lag2, na.rm = FALSE),
+    Lag3 = zoo::na.locf(Lag3, na.rm = FALSE)
+  ) %>%
+  ungroup()
+
+# Initialize forecast results
+df_future_predictions <- df_combined %>%
+  filter(Month >= future_start) %>%
+  mutate(Forecast = NA)  # Initialize Forecast column
+
+# Perform iterative forecasting
+for (hospital in unique(df_combined$Hospital)) {
+  # Extract the relevant data
+  df_hospital <- df_combined %>%
+    filter(Hospital == hospital) %>%
+    arrange(Month)
+  
+  # Get the initial lags from the last available month in historical data
+  initial_lags <- df_hospital %>%
+    filter(Month == max(df_monthly_train$Month)) %>%
+    select(Lag1, Lag2, Lag3) %>%
+    unlist() %>%
+    as.numeric()
+  
+  # Fit the model
+  model <- fit_rf$model[[which(unique(df_monthly_train$Hospital) == hospital)]]
+  
+  # Iterate over the future periods
+  for (i in 1:nrow(df_future %>% filter(Hospital == hospital))) {
+    # Prepare data for prediction
+    new_data <- data.frame(Lag1 = initial_lags[1], Lag2 = initial_lags[2], Lag3 = initial_lags[3])
+    
+    # Predict the next value
+    next_pred <- predict(model, newdata = new_data)
+    
+    # Find the row index in df_future_predictions to update
+    current_date <- future_dates[i]
+    df_future_predictions_row <- df_future_predictions %>%
+      filter(Hospital == hospital, Month == current_date)
+    
+    if (nrow(df_future_predictions_row) > 0) {
+      df_future_predictions$Forecast[df_future_predictions$Hospital == hospital & df_future_predictions$Month == current_date] <- next_pred
+    }
+    
+    # Update lag values
+    initial_lags <- c(next_pred, initial_lags[1:2])
+  }
+}
+
+# Combine historical, test predictions, and forecasted data
+df_all <- bind_rows(
+  df_monthly_train %>%
+    mutate(Source = "Historical"),
+  df_test_with_predictions %>%
+    mutate(Source = "Test Prediction"),
+  df_future_predictions %>%
+    mutate(Source = "Forecast")
+)
+
+# Plot historical data, test predictions, and forecasted values
+ggplot(df_all, aes(x = Month)) +
+  geom_line(data = filter(df_all, Source == "Historical"), aes(y = Sum_Total, color = "Historical"), size = 1) +
+  geom_line(data = filter(df_all, Source == "Test Prediction"), aes(y = Predicted, color = "Test Prediction"), size = 1, linetype = "dashed") +
+  geom_line(data = filter(df_all, Source == "Forecast"), aes(y = Forecast, color = "Forecast"), size = 1, linetype = "dashed") +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "Historical Data, Test Predictions, and Forecasted Values",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Historical" = "black", "Test Prediction" = "red", "Forecast" = "blue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))  # Expand y scale to avoid cutting off values
+
+```
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(zoo)   # For forward-filling missing values
+library(randomForest)
+library(ggplot2)
+library(tidyr)  # For unnest()
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data by month and hospital
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Prepare training data by adding multiple lag features
+df_monthly_train <- df_monthly_train %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+# Prepare test data by adding multiple lag features
+df_monthly_test <- df_monthly_test %>%
+  arrange(Hospital, Month) %>%
+  group_by(Hospital) %>%
+  mutate(
+    Lag1 = lag(Sum_Total, 1),
+    Lag2 = lag(Sum_Total, 2),
+    Lag3 = lag(Sum_Total, 3)
+  ) %>%
+  na.omit()
+
+# Fit the Random Forest model for each hospital
+fit_rf <- df_monthly_train %>%
+  group_by(Hospital) %>%
+  do(model = randomForest(Sum_Total ~ Lag1 + Lag2 + Lag3, data = ., ntree = 100))
+
+# Prepare future dates for forecasting
+future_start <- ymd("2024-07-25")
+future_end <- ymd("2026-07-25")
+future_dates <- seq.Date(from = future_start, to = future_end, by = "month")
+df_future <- expand.grid(Hospital = unique(df_monthly_train$Hospital), Month = future_dates)
+
+# Combine historical and future data
+df_combined <- bind_rows(
+  df_monthly_train %>% select(Hospital, Month, Sum_Total, Lag1, Lag2, Lag3) %>% mutate(Source = "Historical"),
+  df_monthly_test %>% select(Hospital, Month, Sum_Total) %>% mutate(Source = "Test"),
+  df_future %>% mutate(Lag1 = NA, Lag2 = NA, Lag3 = NA, Sum_Total = NA, Forecast = NA, Source = "Forecast")
+)
+
+# Handle missing Lag values by forward-filling
+df_combined <- df_combined %>%
+  group_by(Hospital) %>%
+  arrange(Month) %>%
+  mutate(
+    Lag1 = zoo::na.locf(Lag1, na.rm = FALSE),
+    Lag2 = zoo::na.locf(Lag2, na.rm = FALSE),
+    Lag3 = zoo::na.locf(Lag3, na.rm = FALSE)
+  ) %>%
+  ungroup()
+
+# Initialize forecast results
+df_future_predictions <- df_combined %>%
+  filter(Source == "Forecast") %>%
+  mutate(Forecast = NA)  # Initialize Forecast column
+
+# Perform iterative forecasting
+for (hospital in unique(df_combined$Hospital)) {
+  # Extract the relevant data
+  df_hospital <- df_combined %>%
+    filter(Hospital == hospital) %>%
+    arrange(Month)
+  
+  # Get the initial lags from the last available month in historical data
+  initial_lags <- df_hospital %>%
+    filter(Month == max(df_monthly_train$Month)) %>%
+    select(Lag1, Lag2, Lag3) %>%
+    unlist() %>%
+    as.numeric()
+  
+  # Fit the model
+  model <- fit_rf$model[[which(unique(df_monthly_train$Hospital) == hospital)]]
+  
+  # Iterate over the future periods
+  for (i in 1:nrow(df_future %>% filter(Hospital == hospital))) {
+    # Prepare data for prediction
+    new_data <- data.frame(Lag1 = initial_lags[1], Lag2 = initial_lags[2], Lag3 = initial_lags[3])
+    
+    # Predict the next value
+    next_pred <- predict(model, newdata = new_data)
+    
+    # Find the row index in df_future_predictions to update
+    current_date <- future_dates[i]
+    df_future_predictions_row <- df_future_predictions %>%
+      filter(Hospital == hospital, Month == current_date)
+    
+    if (nrow(df_future_predictions_row) > 0) {
+      df_future_predictions$Forecast[df_future_predictions$Hospital == hospital & df_future_predictions$Month == current_date] <- next_pred
+    }
+    
+    # Update lag values
+    initial_lags <- c(next_pred, initial_lags[1:2])
+  }
+}
+
+# Update forecast values in df_combined
+df_combined <- df_combined %>%
+  left_join(df_future_predictions %>% select(Hospital, Month, Forecast), by = c("Hospital", "Month")) %>%
+  mutate(Forecast = coalesce(Forecast.x, Forecast.y)) %>%
+  select(-Forecast.x, -Forecast.y)
+
+# Plot historical data and forecasted values
+ggplot(df_combined, aes(x = Month)) +
+  geom_line(data = filter(df_combined, Source == "Historical"), aes(y = Sum_Total, color = "Historical"), size = 1) +
+  geom_line(data = filter(df_combined, Source == "Test"), aes(y = Sum_Total, color = "Test"), size = 1) +
+  geom_line(data = filter(df_combined, Source == "Forecast"), aes(y = Forecast, color = "Forecast"), size = 1) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "Historical Data, Test Data, and Forecasted Values",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Historical" = "black", "Test" = "red", "Forecast" = "blue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))  # Expand y scale to avoid cutting off values
+
+```
+
+
+
+
+NAIVE FORECAST:
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data by month and hospital
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Prepare future dates for forecasting
+future_start <- ymd("2024-07-25")
+future_end <- ymd("2026-07-25")
+future_dates <- seq.Date(from = future_start, to = future_end, by = "month")
+df_future <- expand.grid(Hospital = unique(df_monthly_train$Hospital), Month = future_dates)
+
+# Combine historical and future data
+df_combined <- bind_rows(
+  df_monthly_train %>% select(Hospital, Month, Sum_Total) %>% mutate(Forecast = NA, Source = "Historical"),
+  df_future %>% mutate(Sum_Total = NA, Forecast = NA, Source = "Forecast")
+)
+
+# Initialize forecast results
+df_future_predictions <- df_combined %>%
+  filter(Month >= future_start) %>%
+  mutate(Forecast = NA)  # Initialize Forecast column
+
+# Perform naive forecasting
+for (hospital in unique(df_combined$Hospital)) {
+  # Extract the relevant historical data
+  df_hospital <- df_combined %>%
+    filter(Hospital == hospital) %>%
+    arrange(Month)
+  
+  # Get the last available value from historical data
+  last_value <- df_hospital %>%
+    filter(!is.na(Sum_Total)) %>%
+    slice_tail(n = 1) %>%
+    pull(Sum_Total)
+  
+  # Iterate over the future periods
+  for (i in 1:nrow(df_future %>% filter(Hospital == hospital))) {
+    current_date <- future_dates[i]
+    df_future_predictions_row <- df_future_predictions %>%
+      filter(Hospital == hospital, Month == current_date)
+    
+    if (nrow(df_future_predictions_row) > 0) {
+      df_future_predictions$Forecast[df_future_predictions$Hospital == hospital & df_future_predictions$Month == current_date] <- last_value
+    }
+  }
+}
+
+# Combine historical, test predictions, and forecasted data
+df_all <- bind_rows(
+  df_monthly_train %>%
+    mutate(Source = "Historical"),
+  df_test_with_predictions %>%
+    mutate(Source = "Test Prediction"),
+  df_future_predictions %>%
+    mutate(Source = "Naive Forecast")
+)
+
+# Plot historical data, test predictions, and forecasted values
+ggplot(df_all, aes(x = Month)) +
+  geom_line(data = filter(df_all, Source == "Historical"), aes(y = Sum_Total, color = "Historical"), size = 1) +
+  geom_line(data = filter(df_all, Source == "Test Prediction"), aes(y = Predicted, color = "Test Prediction"), size = 1, linetype = "dashed") +
+  geom_line(data = filter(df_all, Source == "Naive Forecast"), aes(y = Forecast, color = "Naive Forecast"), size = 1) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "Historical Data, Test Predictions, and Naive Forecasted Values",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Historical" = "black", "Test Prediction" = "red", "Naive Forecast" = "blue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))  # Expand y scale to avoid cutting off values
+
+```
+
+```{r}
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+
+# Aggregate training data by month and hospital
+df_monthly_train <- train_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Aggregate test data by month and hospital
+df_monthly_test <- test_data %>%
+  group_by(Hospital, Month = floor_date(ArchiveDate, "month")) %>%
+  summarise(Sum_Total = sum(Sum_Total, na.rm = TRUE), .groups = 'drop')
+
+# Prepare future dates for forecasting
+future_start <- ymd("2024-07-25")
+future_end <- ymd("2026-07-25")
+future_dates <- seq.Date(from = future_start, to = future_end, by = "month")
+df_future <- expand.grid(Hospital = unique(df_monthly_train$Hospital), Month = future_dates)
+
+# Combine historical and future data
+df_combined <- bind_rows(
+  df_monthly_train %>% select(Hospital, Month, Sum_Total) %>% mutate(Forecast = NA, Source = "Historical"),
+  df_monthly_test %>% select(Hospital, Month, Sum_Total) %>% mutate(Forecast = NA, Source = "Test Data"),
+  df_future %>% mutate(Sum_Total = NA, Forecast = NA, Source = "Forecast")
+)
+
+# Initialize forecast results
+df_future_predictions <- df_combined %>%
+  filter(Month >= future_start) %>%
+  mutate(Forecast = NA)  # Initialize Forecast column
+
+# Perform naive forecasting
+for (hospital in unique(df_combined$Hospital)) {
+  # Extract the relevant historical data
+  df_hospital <- df_combined %>%
+    filter(Hospital == hospital) %>%
+    arrange(Month)
+  
+  # Get the last available value from historical data
+  last_value <- df_hospital %>%
+    filter(!is.na(Sum_Total)) %>%
+    slice_tail(n = 1) %>%
+    pull(Sum_Total)
+  
+  # Iterate over the future periods
+  for (i in 1:nrow(df_future %>% filter(Hospital == hospital))) {
+    current_date <- future_dates[i]
+    df_future_predictions_row <- df_future_predictions %>%
+      filter(Hospital == hospital, Month == current_date)
+    
+    if (nrow(df_future_predictions_row) > 0) {
+      df_future_predictions$Forecast[df_future_predictions$Hospital == hospital & df_future_predictions$Month == current_date] <- last_value
+    }
+  }
+}
+
+# Combine historical, test data, and forecasted data
+df_all <- bind_rows(
+  df_monthly_train %>%
+    mutate(Source = "Historical"),
+  df_monthly_test %>%
+    mutate(Source = "Test Data"),
+  df_future_predictions %>%
+    mutate(Source = "Naive Forecast")
+)
+
+# Plot historical data, test data, and forecasted values
+ggplot(df_all, aes(x = Month)) +
+  geom_line(data = filter(df_all, Source == "Historical"), aes(y = Sum_Total, color = "Historical"), size = 1) +
+  geom_line(data = filter(df_all, Source == "Test Data"), aes(y = Sum_Total, color = "Test Data"), size = 1, linetype = "dashed") +
+  geom_line(data = filter(df_all, Source == "Naive Forecast"), aes(y = Forecast, color = "Naive Forecast"), size = 1) +
+  facet_wrap(~ Hospital, nrow = 5, ncol = 2, scales = "free_y") +
+  labs(title = "Historical Data, Test Data, and Naive Forecasted Values",
+       x = "Date",
+       y = "Sum Total",
+       color = "Legend") +
+  theme_minimal() +
+  scale_color_manual(values = c("Historical" = "black", "Test Data" = "red", "Naive Forecast" = "blue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))  # Expand y scale to avoid cutting off values
+
+```
+
+
+
+#### Result 
+
+
+##### Conclusion 
+
+
+##### Bibliography 
+
+
+1. Mcdaid, D., Wiley, M., Maresso, A. and Mossialos, E. (2009). 'Ireland Health system review', *Health Systems in Transition*, 11(4), 20, Available at: https://iris.who.int/bitstream/handle/10665/107959/HiT-11-4-2009-eng.pdf?sequence=6 [Accessed 7 Aug. 2024].´
+
+2. Health Service Executive (2024), *'Our National Service Plan 2024'*, Dublin: Dr. Steeven’s Hospital. Available at: https://www.hse.ie/eng/services/publications/serviceplans/hse-national-service-plan-2024.pdf  [Accessed 7 Aug. 2024].
+
+3. The National Treatment Purchase Fund (2024), *Detailed Reports*, available: https://www.ntpf.ie/home/nwld.htm [Accessed 7 Aug. 2024]. 
+
+4. Department of Health (2024) *Did not attends (DNAs) for outpatient hospital appointments can be reduced by 13% using behaviourally informed SMS reminders* [press release], 15 Apr, available: https://www.gov.ie/en/press-release/eb185-did-not-attends-dnas-for-outpatient-hospital-appointments-can-be-reduced-by-13-using-behaviourally-informed-sms-reminders/  [Accessed 7 Aug. 2024].
+
+5. Hasvold, P.E. and Wootton, R. (2011). Use of telephone and SMS reminders to improve attendance at hospital appointments: a systematic review. Journal of Telemedicine and Telecare, 17(7), pp.358–364. doi:https://doi.org/10.1258/jtt.2011.110707.
+
+6. PricewaterhouseCoopers (2021), *Conti cyber attack on the HSE:Independent Post Incident Review*, Dublin: Dr. Steeven’s Hospital, Available at: https://cyberireland.ie/wp-content/uploads/2022/02/conti-cyber-attack-on-the-hse-full-report.pdf [Accessed 7 Aug. 2024].
+
+7. Sheils McNamee, M. (2021), 'HSE cyber-attack: Irish health service still recovering months after hack', *BBC News NI*, 05 Sept, available: https://www.bbc.com/news/world-europe-58413448 [Accessed 7 Aug. 2024].
+
+8. The National Treatment Purchase Fund (n.d.), *About the NTPF* available: https://www.ntpf.ie/home/about.htm#:~:text=The%20NTPF%20is%20a%20corporate,Support%20Scheme%20Act%20(2009).  [Accessed 12 Aug. 2024].
